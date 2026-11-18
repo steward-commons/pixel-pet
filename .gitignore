@@ -1,0 +1,5 @@
+pet.json
+pet.json.*
+pet.log
+ticker.log
+__pycache__/
