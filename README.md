@@ -29,7 +29,9 @@ python3 pixel_pet.py groom      # also scoops the litter box
 python3 pixel_pet.py report     # short, pasteable update
 ```
 
-Run `python3 pixel_pet.py --help` for everything else (`status`, `talk`, `rest`, `heal`, `litter`, `scoop`, `freshen`, `relitter`, `den`, `tick`, `log`).
+Run `python3 pixel_pet.py --help` for everything else (`status`, `talk`, `rest`, `heal`, `litter`, `scoop`, `freshen`, `relitter`, `den`, `find`, `tick`, `log`).
+
+A rare slapstick toy-chaos event can fire during `play` (including a laser session) or, more rarely, on its own while the pet is awake. One of two variants is picked at random: a toy gets stuck to a claw, the collar, or the tail and comes off on its own after a few minutes of zoomies (about 3–15 minutes; this one is not something you can fix); or a toy ends up in sight but out of reach (under the couch, under the furniture, or on a high shelf) until you run `find` or it rolls loose on its own after an hour or two. If the den is open, a stuck-toy zoomies run may knock a thing or two over. Status shows the episode while it is active, plus a small scoreboard. It may nudge energy or happiness slightly. It never lowers health.
 
 ## Files and environment
 

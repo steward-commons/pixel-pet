@@ -134,3 +134,13 @@ None of these can lower health, cause a hairball, or lead to hibernation. Diary 
 - **Sleep window:** 11:00 PM–8:00 AM America/Chicago.
 
 Program: `pixel_pet.py`. Usage: see `README.md`.
+
+## Toy chaos (added 2026-11-21)
+
+A rare slapstick event with two variants, picked at random when a play session succeeds or, more rarely, while the pet is awake.
+
+1. **Stuck on the pet.** A toy snags on a claw, the collar, or the tail. The pet tears around (and may knock something over if the den is open). The toy falls off on its own after 3–15 minutes. Care actions cannot unstick it.
+2. **In sight, out of reach.** A toy ends up under the couch, under the furniture, or on a high shelf. `find` retrieves it, or it rolls loose on its own after about one to two and a half hours.
+
+A 6-hour cooldown follows each onset. Stats may nudge slightly (energy and happiness). Health is never lowered. New keys live under `toy_chaos` in `pet.json` and are filled in on load. Do not edit a living `pet.json` by hand.
+

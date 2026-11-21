@@ -131,6 +131,29 @@ HIDEOUT_ENERGY = 8
 HIDEOUT_HOURS = 4.0
 FURNISHING_COUNT_KEYS = ("lasers", "perches", "trees", "lounges", "hideouts")
 
+# Toy chaos (2026-11-21). Two slapstick variants, picked at random.
+# "stuck": a toy snags on the pet and falls off on its own after a short zoomies run.
+# "out_of_reach": a toy is in sight but can't be reached until find, or it rolls loose.
+# Never hurts the pet, never lowers health.
+TOY_CHAOS_VARIANTS = ("stuck", "out_of_reach")
+TOY_CHAOS_ATTACHMENTS = ("claw", "collar", "tail")
+TOY_CHAOS_PLACES = ("under the couch", "under the furniture", "on a high shelf")
+TOY_CHAOS_TOYS = ("toy", "feather", "mouse", "ball")
+TOY_CHAOS_PLAY_CHANCE = 0.10
+TOY_CHAOS_IDLE_CHANCE_PER_HOUR = 0.008
+TOY_CHAOS_IDLE_CHANCE_CAP = 0.10
+TOY_CHAOS_CHANCE_WINDOW = 0.50  # mid-band so tests that pin RNG to 0 or 1 do not collide
+TOY_CHAOS_COOLDOWN_HOURS = 6.0
+TOY_CHAOS_STUCK_MIN_MINUTES = 3
+TOY_CHAOS_STUCK_MAX_MINUTES = 15
+TOY_CHAOS_OOR_MIN_MINUTES = 60
+TOY_CHAOS_OOR_MAX_MINUTES = 150
+TOY_CHAOS_ENERGY_NUDGE = 6.0
+TOY_CHAOS_HAPPINESS_NUDGE = 8.0
+TOY_CHAOS_OOR_HAPPINESS_NICK = 4.0
+TOY_CHAOS_FIND_HAPPINESS = 12.0
+TOY_CHAOS_FIND_BOND = 3.0
+
 TRAITS = ("loyal", "snarky", "lazy", "curious", "proud", "gentle")
 
 STAT_KEYS = ("hunger", "happiness", "energy", "hygiene", "health")
@@ -773,6 +796,58 @@ ACTION_LINES = {
         "The den is closed again. The furniture stays put; it just will not change his day until it is reopened.",
         "Den closed. His old routine is back on the clock.",
     ],
+    "toy_chaos_stuck_claw": [
+        "A toy snagged on a claw. He tore a frantic lap of the room, trailing chaos and dignity in that order.",
+        "Something stuck to a claw. Zoomies followed, full commitment, zero plan.",
+        "A toy clipped a claw and would not let go. He sprinted like the floor was optional.",
+    ],
+    "toy_chaos_stuck_collar": [
+        "A toy clipped onto his collar and came along for the ride. The ride was a panicked circuit of the room.",
+        "Something attached itself to his collar. He answered with a full, indignant zoomies run.",
+        "A toy hung from his collar. He fled it, which meant it came too. Physics is rude.",
+    ],
+    "toy_chaos_stuck_tail": [
+        "A toy attached itself to his tail. He ran as if the laws of physics had personally offended him.",
+        "Something latched onto his tail. The resulting tour of the room was loud, fast, and officially unintentional.",
+        "A toy snagged his tail. He launched. The toy launched with him. This was not the plan.",
+    ],
+    "toy_chaos_stuck_knock": [
+        "The lounge cushion went over. He did not stop to apologize.",
+        "He clipped the cat tree, which wobbled and survived.",
+        "A beer can hid for its life. The perch will need a moment.",
+        "He bowled past the food dish. The dish is fine. The vibe is not.",
+        "A stack of pixels scattered and then pretended they had always been that way.",
+    ],
+    "toy_chaos_stuck_clear": [
+        "The toy fell off on its own. He sat, licked a paw, and declined to acknowledge the previous few minutes.",
+        "It dropped. He arranged himself into a loaf, as if the zoomies had been a rumor.",
+        "The evidence detached. He is once again a statue, and statues do not comment.",
+    ],
+    "toy_chaos_stuck_find": [
+        "The toy is stuck to him. It will come off on its own. He is not taking questions.",
+        "You cannot unstick that. Time will. He is already pretending this is a chosen look.",
+        "Help is declined. The toy will fall off when it is ready, and not a moment sooner.",
+    ],
+    "toy_chaos_oor_event": [
+        "The {kind} is {place}, in plain sight and just out of reach. He stares at it as if that might help.",
+        "The {kind} vanished {place}. He can see it. He cannot have it. He paws at the gap anyway.",
+        "The {kind} sits {place}. He reaches, comes up short, and sits down to reconsider the laws of physics.",
+    ],
+    "toy_chaos_oor_clear": [
+        "The {kind} rolled loose from {place}. He scooped it up and acted like that was the plan all along.",
+        "It finally slipped free of {place}. He strutted off with the {kind} as if he had talked it down himself.",
+        "The {kind} freed itself from {place}. He will accept no questions. He is very professional about this.",
+    ],
+    "toy_chaos_oor_find": [
+        "You fetched the {kind} from {place}. He acted surprised, then delighted, then claimed it was a team effort.",
+        "You fish the {kind} out from {place}. He takes it like a medal and leans in for the bond-check.",
+        "Retrieved: one {kind}, formerly {place}. He accepts it as if he had it under control the whole time.",
+    ],
+    "toy_chaos_find_none": [
+        "Nothing is out of reach right now. He looks faintly disappointed that you asked.",
+        "No missing toy. He checked, in principle.",
+        "Everything reachable is already accounted for, according to him.",
+    ],
 }
 
 EVENTS = [
@@ -976,8 +1051,45 @@ def furnishings_enabled(state: dict[str, Any] | None) -> bool:
     return isinstance(den, dict) and bool(den.get("enabled"))
 
 
+def default_toy_chaos() -> dict[str, Any]:
+    """Scoreboard and flag for slapstick toy-chaos episodes."""
+    return {
+        "active": False,
+        "variant": None,
+        "at": None,
+        "until": None,
+        "attachment": None,
+        "place": None,
+        "toy": None,
+        "text": None,
+        "knocked": None,
+        "times": 0,
+        "times_stuck": 0,
+        "times_out_of_reach": 0,
+        "longest_minutes": 0.0,
+        "last_at": None,
+    }
+
+
+def toy_chaos_roll_hits(rng: random.Random, chance: float, window_start: float = TOY_CHAOS_CHANCE_WINDOW) -> bool:
+    """True if a uniform roll falls in [window_start, window_start + chance).
+
+    The window starts at 0.50 so tests that pin the RNG to 0 or 1 do not
+    accidentally start a toy-chaos episode.
+    """
+    if chance <= 0:
+        return False
+    cap = max(0.0, min(chance, 1.0 - window_start))
+    roll = rng.random()
+    return window_start <= roll < window_start + cap
+
+
+def toy_chaos_fill(rng: random.Random, key: str, kind: str, place: str) -> str:
+    return pick_line(rng, key).format(kind=kind, place=place)
+
+
 def migrate_state(state: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
-    """Add missing fields (litter box, hairball, furnishings, counters) without dropping existing state."""
+    """Add missing fields (litter box, hairball, furnishings, toy_chaos, counters) without dropping existing state."""
     if not state:
         return state
     stamp_src = state.get("last_updated") or state.get("last_care_at") or state.get("born_at")
@@ -1007,6 +1119,13 @@ def migrate_state(state: dict[str, Any], now: datetime | None = None) -> dict[st
         for key, value in default_furnishings().items():
             if key not in den:
                 den[key] = value
+    box = state.get("toy_chaos")
+    if not isinstance(box, dict):
+        state["toy_chaos"] = default_toy_chaos()
+    else:
+        for key, value in default_toy_chaos().items():
+            if key not in box:
+                box[key] = value
     # House rule: the only "illness" is a hairball.
     # Clear any leftover sick state; keep the keys so nothing else is dropped.
     state["sick"] = False
@@ -1171,6 +1290,7 @@ def new_state(now: datetime, traits: list[str]) -> dict[str, Any]:
         "counts": {"meals": 0, "snacks": 0, "plays": 0, "rests": 0, "grooms": 0, "talks": 0, "scoops": 0, "changes": 0, "freshens": 0, "lasers": 0, "perches": 0, "trees": 0, "lounges": 0, "hideouts": 0},
         "litter": default_litter(now),
         "furnishings": default_furnishings(),
+        "toy_chaos": default_toy_chaos(),
         "voice": "playful and smug but affectionate",
         "hardcore": False,
     }
@@ -1542,6 +1662,9 @@ class Pet:
         if self.state["status"] == "hibernating":
             since = parse_ts(self.state["hibernating_since"] or self.state["last_updated"])
             self.state["days_resting"] = max(0.0, (now - since).total_seconds() / 86400.0)
+            chaos = self._progress_toy_chaos(now, allow_start=False)
+            if chaos:
+                notes.append(chaos)
             self.state["last_updated"] = fmt_ts(now)
             return notes
 
@@ -1585,6 +1708,9 @@ class Pet:
             if pester:
                 notes.append(pester)
             self._expire_hideout(now)
+            chaos = self._progress_toy_chaos(now, allow_start=True)
+            if chaos:
+                notes.append(chaos)
 
         self.state["last_updated"] = fmt_ts(now)
         return [n for n in notes if n]
@@ -2081,11 +2207,14 @@ class Pet:
         self.state["counts"]["plays"] = int(self.state["counts"].get("plays") or 0) + 1
         self._care(now)
         self._update_zero_clocks(now)
-        self.save()
         parts = list(notes)
         if revive:
             parts.insert(0, revive)
         parts.append(pick_line(self.rng, "play"))
+        chaos = self._maybe_start_toy_chaos(now, source="play", toy="toy")
+        if chaos:
+            parts.append(chaos)
+        self.save()
         return " ".join(p for p in parts if p)
 
     def _sync_furnishings(self) -> dict[str, Any]:
@@ -2203,11 +2332,14 @@ class Pet:
         self.state["counts"]["plays"] = int(self.state["counts"].get("plays") or 0) + 1
         self._care(now)
         self._update_zero_clocks(now)
-        self.save()
         parts = list(notes)
         if revive:
             parts.insert(0, revive)
         parts.append(self._laser_line(int(den["laser_misses"])))
+        chaos = self._maybe_start_toy_chaos(now, source="play", toy="toy")
+        if chaos:
+            parts.append(chaos)
+        self.save()
         return " ".join(p for p in parts if p)
 
     def _den_closed_result(self, notes: list[str]) -> str:
@@ -2741,6 +2873,267 @@ class Pet:
             return f"{stage} {form}"
         return stage
 
+    def _sync_toy_chaos(self) -> dict[str, Any]:
+        box = self.state.get("toy_chaos")
+        if not isinstance(box, dict):
+            box = default_toy_chaos()
+            self.state["toy_chaos"] = box
+        else:
+            for key, value in default_toy_chaos().items():
+                box.setdefault(key, value)
+        return box
+
+    def toy_chaos_scoreboard(self) -> str:
+        box = self._sync_toy_chaos()
+        times = int(box.get("times") or 0)
+        longest = float(box.get("longest_minutes") or 0.0)
+        if longest >= 1:
+            long_s = f"{longest:.0f} min"
+        else:
+            long_s = f"{max(0.0, longest) * 60:.0f} sec"
+        noun = "time" if times == 1 else "times"
+        return f"{times} {noun}, longest {long_s}"
+
+    def toy_chaos_status_line(self) -> str | None:
+        box = self._sync_toy_chaos()
+        times = int(box.get("times") or 0)
+        if times == 0 and not box.get("active"):
+            return None
+        line = f"Toy chaos: {self.toy_chaos_scoreboard()}"
+        if box.get("active"):
+            variant = box.get("variant") or "stuck"
+            toy = box.get("toy") or "toy"
+            if variant == "out_of_reach":
+                place = box.get("place") or "just out of reach"
+                line += f"  •  the {toy} is {place}, in sight but out of reach"
+            else:
+                att = box.get("attachment") or "claw"
+                line += f"  •  a {toy} is stuck to his {att}; mid-zoomies"
+        return line
+
+    def _toy_chaos_can_start(self, now: datetime) -> bool:
+        if self.state.get("status") == "hibernating":
+            return False
+        box = self._sync_toy_chaos()
+        if box.get("active"):
+            return False
+        raw = box.get("last_at")
+        if not raw:
+            return True
+        try:
+            last = parse_ts(raw)
+        except (ValueError, TypeError):
+            return True
+        return (now - last).total_seconds() >= TOY_CHAOS_COOLDOWN_HOURS * 3600.0
+
+    def _toy_chaos_idle_chance(self, now: datetime) -> float:
+        raw = self.state.get("last_updated")
+        if not raw:
+            return 0.0
+        try:
+            last = parse_ts(raw)
+        except (ValueError, TypeError):
+            return 0.0
+        if now <= last:
+            return 0.0
+        hours = 0.0
+        sleep_start, sleep_end = self.sleep_times()
+        cursor = last
+        while cursor < now:
+            boundary = min(next_boundary(cursor, sleep_start, sleep_end), now)
+            step = min(cursor + timedelta(hours=1), boundary)
+            slice_hours = (step - cursor).total_seconds() / 3600.0
+            if slice_hours > 0 and not is_sleep_time(cursor, sleep_start, sleep_end):
+                hours += slice_hours
+            cursor = step
+        if hours <= 0:
+            return 0.0
+        chance = 1.0 - (1.0 - TOY_CHAOS_IDLE_CHANCE_PER_HOUR) ** hours
+        return min(TOY_CHAOS_IDLE_CHANCE_CAP, chance)
+
+    def _start_toy_chaos(
+        self,
+        now: datetime,
+        variant: str | None = None,
+        toy: str | None = None,
+        attachment: str | None = None,
+        place: str | None = None,
+        duration_minutes: float | None = None,
+    ) -> str:
+        """Begin a slapstick toy-chaos episode. Variant is stuck or out_of_reach."""
+        box = self._sync_toy_chaos()
+        if variant not in TOY_CHAOS_VARIANTS:
+            variant = self.rng.choice(TOY_CHAOS_VARIANTS)
+        if not toy:
+            if furnishings_enabled(self.state):
+                toy = self.rng.choice(TOY_CHAOS_TOYS)
+            else:
+                toy = "toy"
+        if variant == "out_of_reach":
+            if place not in TOY_CHAOS_PLACES:
+                place = self.rng.choice(TOY_CHAOS_PLACES)
+            if duration_minutes is None:
+                duration_minutes = float(self.rng.randint(TOY_CHAOS_OOR_MIN_MINUTES, TOY_CHAOS_OOR_MAX_MINUTES))
+            duration_minutes = max(float(TOY_CHAOS_OOR_MIN_MINUTES), float(duration_minutes))
+            line = toy_chaos_fill(self.rng, "toy_chaos_oor_event", toy, place)
+            apply_safe_deltas(self.state, {"happiness": -TOY_CHAOS_OOR_HAPPINESS_NICK})
+            attachment = None
+            knocked = None
+        else:
+            variant = "stuck"
+            place = None
+            if attachment not in TOY_CHAOS_ATTACHMENTS:
+                attachment = self.rng.choice(TOY_CHAOS_ATTACHMENTS)
+            if duration_minutes is None:
+                duration_minutes = float(self.rng.randint(TOY_CHAOS_STUCK_MIN_MINUTES, TOY_CHAOS_STUCK_MAX_MINUTES))
+            duration_minutes = max(float(TOY_CHAOS_STUCK_MIN_MINUTES), float(duration_minutes))
+            line = pick_line(self.rng, f"toy_chaos_stuck_{attachment}")
+            knocks: list[str] = []
+            if furnishings_enabled(self.state):
+                pool = list(ACTION_LINES.get("toy_chaos_stuck_knock") or [])
+                n = self.rng.randint(1, 2) if pool else 0
+                for _ in range(n):
+                    if not pool:
+                        break
+                    pick = self.rng.choice(pool)
+                    pool.remove(pick)
+                    knocks.append(pick)
+                if knocks:
+                    line = " ".join([line] + knocks)
+                den = self._sync_furnishings()
+                den["in_hideout"] = False
+            apply_safe_deltas(
+                self.state,
+                {"energy": -TOY_CHAOS_ENERGY_NUDGE, "happiness": TOY_CHAOS_HAPPINESS_NUDGE},
+            )
+            knocked = " ".join(knocks) if knocks else None
+        until = now + timedelta(minutes=duration_minutes)
+        box["active"] = True
+        box["variant"] = variant
+        box["at"] = fmt_ts(now)
+        box["until"] = fmt_ts(until)
+        box["attachment"] = attachment
+        box["place"] = place
+        box["toy"] = toy
+        box["text"] = line
+        box["knocked"] = knocked
+        box["times"] = int(box.get("times") or 0) + 1
+        if variant == "out_of_reach":
+            box["times_out_of_reach"] = int(box.get("times_out_of_reach") or 0) + 1
+        else:
+            box["times_stuck"] = int(box.get("times_stuck") or 0) + 1
+        box["last_at"] = fmt_ts(now)
+        prev = float(box.get("longest_minutes") or 0.0)
+        if duration_minutes > prev:
+            box["longest_minutes"] = duration_minutes
+        kind = "toy_chaos_oor" if variant == "out_of_reach" else "toy_chaos_stuck"
+        self.append_diary(line, kind=kind, when=now)
+        self.log(f"toy-chaos {variant}  {line}", now)
+        return line
+
+    def _clear_toy_chaos(self, when: datetime, reason: str = "time") -> str:
+        box = self._sync_toy_chaos()
+        variant = box.get("variant") or "stuck"
+        toy = box.get("toy") or "toy"
+        place = box.get("place") or "just out of reach"
+        started_raw = box.get("at")
+        if started_raw:
+            try:
+                started = parse_ts(started_raw)
+                elapsed = max(0.0, (when - started).total_seconds() / 60.0)
+                prev = float(box.get("longest_minutes") or 0.0)
+                if elapsed > prev:
+                    box["longest_minutes"] = elapsed
+            except (ValueError, TypeError):
+                pass
+        box["active"] = False
+        box["until"] = None
+        box["variant"] = None
+        box["attachment"] = None
+        box["place"] = None
+        box["toy"] = None
+        box["text"] = None
+        box["knocked"] = None
+        if variant == "out_of_reach":
+            if reason == "find":
+                line = toy_chaos_fill(self.rng, "toy_chaos_oor_find", toy, place)
+                kind = "toy_chaos_oor_find"
+            else:
+                line = toy_chaos_fill(self.rng, "toy_chaos_oor_clear", toy, place)
+                kind = "toy_chaos_oor_clear"
+        else:
+            line = pick_line(self.rng, "toy_chaos_stuck_clear")
+            kind = "toy_chaos_stuck_clear"
+        self.append_diary(line, kind=kind, when=when)
+        self.log(f"toy-chaos clear ({reason})  {line}", when)
+        return line
+
+    def _maybe_start_toy_chaos(
+        self,
+        now: datetime,
+        source: str = "play",
+        toy: str | None = None,
+        chance: float | None = None,
+    ) -> str | None:
+        if not self._toy_chaos_can_start(now):
+            return None
+        if chance is None:
+            chance = TOY_CHAOS_PLAY_CHANCE if source == "play" else self._toy_chaos_idle_chance(now)
+        if not toy_chaos_roll_hits(self.rng, chance):
+            return None
+        return self._start_toy_chaos(now, toy=toy)
+
+    def _progress_toy_chaos(self, now: datetime, allow_start: bool = True) -> str | None:
+        box = self._sync_toy_chaos()
+        if box.get("active"):
+            raw = box.get("until")
+            if not raw:
+                return self._clear_toy_chaos(now, reason="time")
+            try:
+                until = parse_ts(raw)
+            except (ValueError, TypeError):
+                return self._clear_toy_chaos(now, reason="time")
+            if now >= until:
+                return self._clear_toy_chaos(until, reason="time")
+            return None
+        if not allow_start:
+            return None
+        if self.state.get("status") == "asleep":
+            return None
+        if not self._toy_chaos_can_start(now):
+            return None
+        chance = self._toy_chaos_idle_chance(now)
+        if not toy_chaos_roll_hits(self.rng, chance):
+            return None
+        return self._start_toy_chaos(now)
+
+    def find(self) -> str:
+        """Retrieve an out-of-reach toy, or explain why a stuck toy cannot be helped."""
+        notes = self.tick()
+        now = self.now()
+        if self.state["status"] == "hibernating":
+            self.save()
+            return " ".join(n for n in list(notes) + [self._den_hibernate_line("toy")] if n)
+        box = self._sync_toy_chaos()
+        parts = list(notes)
+        if box.get("active") and box.get("variant") == "out_of_reach":
+            st = self.state["stats"]
+            st["happiness"] = clamp(st["happiness"] + TOY_CHAOS_FIND_HAPPINESS)
+            self.state["bond"] = clamp(float(self.state.get("bond") or 0) + TOY_CHAOS_FIND_BOND)
+            self._care(now)
+            line = self._clear_toy_chaos(now, reason="find")
+            self._update_zero_clocks(now)
+            parts.append(line)
+            self.save()
+            return " ".join(p for p in parts if p)
+        if box.get("active") and box.get("variant") == "stuck":
+            parts.append(pick_line(self.rng, "toy_chaos_stuck_find"))
+            self.save()
+            return " ".join(p for p in parts if p)
+        parts.append(pick_line(self.rng, "toy_chaos_find_none"))
+        self.save()
+        return " ".join(p for p in parts if p)
+
     def status_text(self, roll_event: bool = True) -> str:
         notes = self.tick()
         event = self.maybe_event() if roll_event else None
@@ -2787,6 +3180,9 @@ class Pet:
         lines.append(self.litter_text())
         if furnishings_enabled(s):
             lines.append(self.den_status_line())
+        chaos_line = self.toy_chaos_status_line()
+        if chaos_line:
+            lines.append(chaos_line)
         lines.append(self.needs_line())
         if s["status"] == "hibernating":
             lines.append(f"Resting for {s.get('days_resting') or 0:.1f} days. He is not gone.")
@@ -2987,6 +3383,7 @@ Usage:
   python3 pixel_pet.py status         Check on him
   python3 pixel_pet.py feed [meal|snack]
   python3 pixel_pet.py play [laser]
+  python3 pixel_pet.py find           Retrieve a toy that is in sight but out of reach
   python3 pixel_pet.py den            Den status (enable to open the new furnishings)
   python3 pixel_pet.py perch          Window perch (den must be open)
   python3 pixel_pet.py tree           Cat tree (den must be open)
@@ -3035,7 +3432,7 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[shared],
     )
     sub = p.add_subparsers(dest="cmd")
-    for name in ("status", "groom", "clean", "rest", "sleep", "heal", "talk", "report", "log", "diary", "hatch", "init", "ticker", "scoop", "freshen", "relitter", "change", "perch", "tree", "lounge", "hideout", "laser"):
+    for name in ("status", "groom", "clean", "rest", "sleep", "heal", "talk", "report", "log", "diary", "hatch", "init", "ticker", "scoop", "freshen", "relitter", "change", "perch", "tree", "lounge", "hideout", "laser", "find", "retrieve"):
         sp = sub.add_parser(name, parents=[shared])
         if name in ("hatch", "init"):
             sp.add_argument("--force", action="store_true", help="Overwrite an existing pet (tests only).")
@@ -3134,6 +3531,10 @@ def main(argv: list[str] | None = None) -> int:
             print(pet.status_text(roll_event=False))
         elif cmd == "laser":
             print(pet.play("laser"))
+            print()
+            print(pet.status_text(roll_event=False))
+        elif cmd in ("find", "retrieve"):
+            print(pet.find())
             print()
             print(pet.status_text(roll_event=False))
         elif cmd == "perch":
