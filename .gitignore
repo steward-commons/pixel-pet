@@ -3,3 +3,7 @@ pet.json.*
 pet.log
 ticker.log
 __pycache__/
+
+# Working copies — never publish or upload
+*.bak*
+*.bak-*
